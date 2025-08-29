@@ -197,11 +197,11 @@ public static class ConfigIO
         {
             for (int x = 0; x < width; x++)
             {
-                string type = (x == 0 || y == 0 || x == width - 1 || y == height - 1) ? " + "\"wall\"" + @" : ""floor"";
-                if (x == 2 && y == 2) type = ""player"";
-                if ((x == 5 && y == 3) || (x == 8 && y == 7)) type = ""door"";
-                if ((x == 4 && y == 5) || (x == 7 && y == 6) || (x == 9 && y == 3)) type = ""enemy"";
-                sb.Append(@"{ ""type"": """ + "\"").Append(type).Append("\"" + @""" }");
+                string type = (x == 0 || y == 0 || x == width - 1 || y == height - 1) ? "wall" : "floor";
+                if (x == 2 && y == 2) type = "player";
+                if ((x == 5 && y == 3) || (x == 8 && y == 7)) type = "door";
+                if ((x == 4 && y == 5) || (x == 7 && y == 6) || (x == 9 && y == 3)) type = "enemy";
+                sb.Append(@"{ ""type"": """).Append(type).Append(@""" }");
                 idx++;
                 if (idx < width * height) sb.Append(", ");
             }
@@ -623,6 +623,154 @@ namespace Weapons
             public float range;
             public float spreadDegrees;
             public bool isHitscan;
+        }
+    }
+}
+''',
+
+    "Assets/Scripts/AI/ChaserAI.cs": r'''
+using UnityEngine;
+
+namespace AI
+{
+    // Simple AI that chases player and deals damage on contact
+    [RequireComponent(typeof(CharacterController))]
+    public class ChaserAI : MonoBehaviour
+    {
+        public float speed = 3f;
+        public float contactDamage = 15f;
+        public float contactCooldown = 1f;
+
+        private CharacterController controller;
+        private Transform player;
+        private float lastContactTime = -99f;
+
+        void Awake()
+        {
+            controller = GetComponent<CharacterController>();
+        }
+
+        void Start()
+        {
+            var p = GameObject.FindGameObjectWithTag("Player");
+            if (p != null) player = p.transform;
+        }
+
+        void Update()
+        {
+            if (player == null) return;
+
+            Vector3 dir = (player.position - transform.position).normalized;
+            controller.Move(dir * speed * Time.deltaTime);
+            controller.Move(Vector3.down * 9.8f * Time.deltaTime);
+
+            transform.LookAt(player.position);
+        }
+
+        void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            if (hit.collider.CompareTag("Player") && Time.time > lastContactTime + contactCooldown)
+            {
+                var h = hit.collider.GetComponent<Health>();
+                if (h != null)
+                {
+                    h.Damage(contactDamage);
+                    lastContactTime = Time.time;
+                }
+            }
+        }
+    }
+}
+''',
+
+    "Assets/Scripts/AI/EnemyFactory.cs": r'''
+using UnityEngine;
+
+namespace AI
+{
+    public static class EnemyFactory
+    {
+        public static void SpawnInitialEnemies(int count)
+        {
+            if (Level.LevelBuilder.Root == null) return;
+
+            var spawns = Level.LevelBuilder.Root.GetComponentsInChildren<Transform>();
+            int created = 0;
+
+            foreach (var t in spawns)
+            {
+                if (created >= count) break;
+                if (t.name.Contains("enemySpawn"))
+                {
+                    CreateEnemyAt(t.position);
+                    created++;
+                }
+            }
+        }
+
+        private static void CreateEnemyAt(Vector3 pos)
+        {
+            var enemy = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            enemy.name = "Enemy";
+            enemy.tag = "Enemy";
+            enemy.transform.position = pos + Vector3.up * 1f;
+
+            Object.Destroy(enemy.GetComponent<Collider>());
+            var cc = enemy.AddComponent<CharacterController>();
+            cc.height = 1.8f;
+            cc.radius = 0.35f;
+
+            enemy.AddComponent<ChaserAI>();
+
+            var health = enemy.AddComponent<Health>();
+            health.SetMaxHealth(50f, true);
+
+            // Color it red
+            var renderer = enemy.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = Color.red;
+        }
+    }
+}
+''',
+
+    "Assets/Scripts/UI/SimpleHUD.cs": r'''
+using UnityEngine;
+
+namespace UI
+{
+    // Basic on-screen text showing health and ammo
+    public class SimpleHUD : MonoBehaviour
+    {
+        public Health TargetHealth;
+        public Weapons.HitscanGun TargetGun;
+
+        private GUIStyle labelStyle;
+
+        void Awake()
+        {
+            labelStyle = new GUIStyle();
+            labelStyle.fontSize = 24;
+            labelStyle.normal.textColor = Color.white;
+        }
+
+        void OnGUI()
+        {
+            if (TargetHealth != null)
+            {
+                GUI.Label(new Rect(20, 20, 200, 30), $"Health: {TargetHealth.Current:F0}", labelStyle);
+            }
+
+            if (TargetGun != null && TargetGun.State != null)
+            {
+                var ammo = TargetGun.State;
+                GUI.Label(new Rect(20, 50, 200, 30), $"Ammo: {ammo.Mag}/{ammo.Reserve}", labelStyle);
+            }
+
+            // Crosshair
+            float centerX = Screen.width / 2f;
+            float centerY = Screen.height / 2f;
+            GUI.Label(new Rect(centerX - 10, centerY - 10, 20, 20), "+", labelStyle);
         }
     }
 }
